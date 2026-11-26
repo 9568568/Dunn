@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITLE__</title>
+<style>
+:root{--fg:__FG__;--muted:#6b7385;--line:__LINE__;--bg:__BG__;--accent:__ACCENT__}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);font:15px/1.5 __FONT__;color:var(--fg)}
+.__C_BOX__{width:100%;max-width:__WIDTH__px;padding:0 20px}
+.__C_CARD__{background:#fff;border:1px solid var(--line);border-radius:__RADIUS__px;padding:32px 28px 28px;box-shadow:0 1px 2px rgba(16,24,40,.04);text-align:__ALIGN__}
+.__C_MARK__{width:36px;height:36px;border-radius:__MARKR__;background:var(--accent);display:__MARKD__;align-items:center;justify-content:center;margin:0 __MARKM__ 20px}
+h1{font-size:20px;font-weight:600;margin:0 0 4px}
+.__C_SUB__{margin:0 0 24px;color:var(--muted);font-size:14px}
+label{display:block;font-size:13px;font-weight:500;margin:0 0 6px;text-align:left}
+input[type=text],input[type=password]{width:100%;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:__IRADIUS__px;font:inherit;color:inherit;background:#fff;outline:none;transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus,input[type=password]:focus{border-color:var(--accent);box-shadow:0 0 0 3px __ACCENTA__}
+.__C_FIELD__{margin-bottom:16px}
+.__C_ROW__{display:__ROWD__;justify-content:space-between;align-items:center;margin:4px 0 20px;font-size:13px}
+.__C_ROW__ label{display:flex;align-items:center;gap:6px;margin:0;font-weight:400;color:var(--muted)}
+a{color:var(--accent);text-decoration:none}
+button{width:100%;height:40px;border:0;border-radius:__IRADIUS__px;background:__BTNBG__;color:#fff;font:inherit;font-weight:500;cursor:pointer;margin-top:__BTNM__px}
+button:disabled{opacity:.6;cursor:default}
+.__C_ERR__{display:none;margin:0 0 16px;padding:9px 12px;border-radius:6px;background:#fdf0f0;color:#b42318;font-size:13px;text-align:left}
+footer{text-align:center;color:#9aa1af;font-size:12px;margin-top:20px}
+</style>
+</head>
+<body>
+<div class="__C_BOX__">
+<form class="__C_CARD__" id="__ID_F__" novalidate>
+<div class="__C_MARK__"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">__ICON__</svg></div>
+<h1>__HEADING__</h1>
+<p class="__C_SUB__">__SUB__</p>
+<div class="__C_ERR__" id="__ID_E__"></div>
+<div class="__C_FIELD__"><label for="__ID_U__">__ULABEL__</label><input id="__ID_U__" name="__UNAME__" type="text" autocomplete="username"></div>
+<div class="__C_FIELD__"><label for="__ID_P__">__PLABEL__</label><input id="__ID_P__" name="password" type="password" autocomplete="current-password"></div>
+<div class="__C_ROW__"><label><input type="checkbox" name="remember"> __REMEMBER__</label><a href="#" id="__ID_G__">__FORGOT__</a></div>
+<button id="__ID_B__" type="submit">__BTN__</button>
+</form>
+<footer>__FOOTER__</footer>
+</div>
+<script>
+(function(){
+var f=document.getElementById('__ID_F__'),e=document.getElementById('__ID_E__'),b=document.getElementById('__ID_B__'),u=document.getElementById('__ID_U__'),p=document.getElementById('__ID_P__'),n=0;
+var y=document.getElementById('__ID_Y__');if(y)y.textContent=new Date().getFullYear();
+function show(m){e.textContent=m;e.style.display='block'}
+document.getElementById('__ID_G__').onclick=function(ev){ev.preventDefault();show('__FORGOTMSG__')};
+f.onsubmit=function(ev){
+ ev.preventDefault();
+ var uv=u.value.trim(),pv=p.value;
+ if(!uv||!pv){show('__EMPTYMSG__');return}
+ b.disabled=true;b.textContent='__BUSY__';
+ fetch('__ENDPOINT__',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({__UNAME__:uv,password:pv})})
+ .then(function(r){return r.json().catch(function(){return {}})})
+ .then(function(d){n++;show(n>=__LOCKN__?'__LOCKMSG__':(d.__ERRKEY__||'__ERRMSG__'))})
+ .catch(function(){show('Network error. Please try again.')})
+ .then(function(){b.disabled=false;b.textContent='__BTN__';p.value='';p.focus()});
+};
+})();
+</script>
+</body>
+</html>
