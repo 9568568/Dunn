@@ -1,14 +1,31 @@
 #!/usr/bin/env bash
 # dun 一键安装：下载对应架构的二进制，然后打开菜单
-# 纯 IPv6 机器也能用：GitHub 有 IPv6，下载不通会自动改用 IPv6 再试一次。
+# 注意：GitHub 没有 IPv6 地址，纯 IPv6 的机器靠 NAT64/DNS64 或 WARP
+# （IPv4 出口）才能连上它；下载不通会改用 IPv6 再试一次。
 set -e
 [ "$(id -u)" = 0 ] || { echo "请用 root 运行"; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo "没找到 curl，先装 curl 再跑这个脚本"; exit 1; }
 case "$(uname -m)" in
     x86_64|amd64) arch=amd64 ;;
     aarch64|arm64) arch=arm64 ;;
     *) echo "暂不支持 $(uname -m)"; exit 1 ;;
 esac
 url="https://github.com/9568568/Dunn/releases/latest/download/dun-linux-$arch"
+# 装前检测：先看 GitHub 通不通。纯 IPv6 又没有 NAT64/WARP 的机器，
+# 在这一步就会失败；先明说原因，比让下载报一串看不懂的错强。
+probe_rc=0
+curl -sSI --connect-timeout 10 --max-time 15 https://github.com -o /dev/null 2>/dev/null || probe_rc=$?
+if [ "$probe_rc" -ne 0 ]; then
+    if [ "$probe_rc" -eq 6 ]; then
+        echo "域名 github.com 解析失败，装不下去。"
+    else
+        echo "GitHub 连不上，装不下去（curl 退出码 $probe_rc）。"
+    fi
+    echo "GitHub（github.com）没有 IPv6 地址：纯 IPv6 的机器要靠 NAT64/DNS64"
+    echo "或者先跑通 WARP（IPv4 出口）才能连上它。确认一种再重跑，"
+    echo "或者在别的机器上把 dun-linux-$arch 下好，传到这台的 /usr/local/bin/dun。"
+    exit 1
+fi
 echo "下载 dun ($arch)"
 # 先正常下（curl 自己选 IPv4/IPv6）；不通再强制 IPv6 试一次，
 # 免得只有 IPv6 的机器卡在解析/连接上。
