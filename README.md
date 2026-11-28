@@ -312,7 +312,7 @@ Reality 和 AnyTLS 默认用 443，被占了会提示换个端口，填别的也
 
 **纯 IPv6 的机器能用吗？**
 
-能。dun 测公网 IP 时会把隧道出口（比如机器上跑着 WARP 时测到的 Cloudflare 出口 IP）丢掉，只用机器自己真正能被连到的 IPv6 地址写解析、生成链接：直连的三个协议走 AAAA 解析。没有 IPv6 的客户端连不上直连节点，用订阅里走 Cloudflare 的 CF WS 那组。机器上跑着 WARP 也不影响安装和节点本身，WARP 只影响它自己那条出站。
+能。dun 测公网 IP 时会把隧道出口（比如机器上跑着 WARP 时测到的 Cloudflare 出口 IP）丢掉，只用机器自己真正能被连到的 IPv6 地址写解析、生成链接：直连的三个协议走 AAAA 解析。没有 IPv6 的客户端连不上直连节点，用订阅里走 Cloudflare 的 CF WS 那组。机器上跑着 WARP 也不影响安装和节点本身，WARP 只影响它自己那条出站。**首次安装例外**：dun 和 sing-box 都要从 GitHub 下载，纯 IPv6 的机器要先有 IPv4 出口（NAT64/DNS64，或者先跑通 WARP），否则装不上；装好之后节点本身只走 IPv6，不需要再留着 IPv4 出口。
 
 **纯 IPv6 + WARP 的机器上，syncip 会把 CF 出口 IP 当成公网 IP**
 

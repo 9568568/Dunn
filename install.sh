@@ -29,12 +29,13 @@ if command -v curl >/dev/null 2>&1; then
     fi
 fi
 echo "下载 dun ($arch)"
-# 先正常下（curl 自己选 IPv4/IPv6）；不通再强制 IPv6 试一次，
-# 免得只有 IPv6 的机器卡在解析/连接上。
+# curl 自己选 IPv4/IPv6；github.com 没有 IPv6 地址，纯 IPv6 的机器靠 NAT64/DNS64
+# 或 WARP（IPv4 出口）才能连上，前面探针已经验过，不通前面就退出了。
+# 这里不用 -6 强制重试：github.com 本来就没有 AAAA，强制 IPv6 永远下不到东西。
 if command -v curl >/dev/null 2>&1; then
     if ! curl -fL --retry 2 --connect-timeout 15 --progress-bar "$url" -o /usr/local/bin/dun.new; then
-        echo "重试：强制 IPv6 下载"
-        curl -fL -6 --retry 2 --connect-timeout 15 --progress-bar "$url" -o /usr/local/bin/dun.new
+        echo "下载失败，检查网络后重试"
+        exit 1
     fi
 elif command -v wget >/dev/null 2>&1; then
     wget -O /usr/local/bin/dun.new "$url"

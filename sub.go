@@ -145,9 +145,13 @@ func refreshWetest(st *State) (int, error) {
 	c := loadWetest()
 	c.Domains, c.Checked = aliveDomains(), true
 	items, err := fetchWetest(wetestV4)
-	if err == nil && st.CFIP.V6 {
+	if st.CFIP.V6 {
+		// IPv6 优选单独取：IPv4 那路不通时也不能卡住它
 		if v6, e := fetchWetest(wetestV6); e == nil {
 			items = append(items, v6...)
+			if err != nil {
+				err = nil
+			}
 		}
 	}
 	var good []CFAddr

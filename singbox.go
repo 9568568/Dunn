@@ -55,7 +55,7 @@ func sbInstall(ver string) {
 		ver = ghLatest("SagerNet/sing-box")
 	}
 	if ver == "" {
-		die("拿不到 sing-box 最新版本号，检查能不能访问 GitHub")
+		die("拿不到 sing-box 最新版本号：连不上 GitHub。纯 IPv6 的机器要靠 NAT64/DNS64，或先跑通 WARP（IPv4 出口）才能下载；也可以手动把 sing-box 传到 /etc/dun/bin/sing-box")
 	}
 	// 一律用 musl 静态包：不带后缀的那版要 glibc 的加载器，Alpine 上跑不起来；官方 deb、rpm、apk 装的也是这一版
 	u := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/sing-box-%s-linux-%s-musl.tar.gz", ver, ver, sbArch())
@@ -63,7 +63,7 @@ func sbInstall(ver string) {
 	c := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := c.Get(u)
 	if err != nil || resp.StatusCode != 200 {
-		die("sing-box 下载失败: %s", u)
+		die("sing-box 下载失败：连不上 GitHub（%s）。纯 IPv6 的机器要靠 NAT64/DNS64，或先跑通 WARP（IPv4 出口）才能下载", u)
 	}
 	defer resp.Body.Close()
 	gz, err := gzip.NewReader(resp.Body)

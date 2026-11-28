@@ -495,6 +495,9 @@ func detectIP(st *State) {
 	} else {
 		st.IP6 = ip
 	}
+	// 兜底：不管这个 IPv4 是刚测到的还是以前存下来的，只要落在 Cloudflare 段
+	// （WARP 或代理出口），就不是机器的地址，直接丢掉，只按纯 IPv6 处理
+	st.IP4 = dropCFIP4(st.IP4)
 	if st.IP4 == "" && st.IP6 == "" {
 		die("拿不到公网 IP，检查网络")
 	}
