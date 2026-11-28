@@ -10,7 +10,7 @@ case "$(uname -m)" in
     aarch64|arm64) arch=arm64 ;;
     *) echo "暂不支持 $(uname -m)"; exit 1 ;;
 esac
-url="https://github.com/9568568/Dunn/releases/latest/download/dun-linux-$arch"
+url="https://github.com/9568568-SBS/Dunn/releases/latest/download/dun-linux-$arch"
 # 装前检测：先看 GitHub 通不通。纯 IPv6 又没有 NAT64/WARP 的机器，
 # 在这一步就会失败；先明说原因，比让下载报一串看不懂的错强。
 if command -v curl >/dev/null 2>&1; then

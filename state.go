@@ -24,7 +24,7 @@ const (
 	svcBox      = "dun-sb"
 	svcWeb      = "dun"
 	rulePrefix  = "dun ws "
-	repo        = "9568568/Dunn"
+	repo        = "9568568-SBS/Dunn"
 )
 
 type DNSRecord struct {
