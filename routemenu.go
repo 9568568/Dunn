@@ -349,9 +349,9 @@ func warpOut(st *State) *Outbound {
 	return nil
 }
 
-// 挨个入口起临时进程试，第一个能握手的留下
-func warpPick(st *State, o *Outbound) bool {
-	for _, hp := range warpCandidates(o, !st.ipv6Only()) {
+// 挨个入口起临时进程试，第一个能握手的留下。v6 为 true 时只试 IPv6 入口。
+func warpPick(st *State, o *Outbound, v6 bool) bool {
+	for _, hp := range warpCandidates(o, !v6) {
 		setWarpPeer(o, hp)
 		fmt.Fprintf(os.Stderr, "  试入口 %s … ", hp)
 		e, err := testOut(st, o, 1)
@@ -361,13 +361,31 @@ func warpPick(st *State, o *Outbound) bool {
 		}
 		fmt.Fprintf(os.Stderr, "不通：%v\n", err)
 	}
-	setWarpPeer(o, warpCandidates(o, !st.ipv6Only())[0])
+	setWarpPeer(o, warpCandidates(o, !v6)[0])
 	return false
 }
 
+// WARP 入口走 IPv4 还是 IPv6，让用户自己选。默认按机器自动判断（纯 IPv6 机器
+// 只能走 IPv6，不问；有 IPv4 的机器默认走 IPv4）；有 IPv4 但 IPv4 出口被封的
+// 机器上，IPv4 入口全不通，就要手动选 IPv6。返回（走 IPv6，是否继续）。
+func warpEntryChoice(st *State) (bool, bool) {
+	if st.ipv6Only() {
+		return true, true
+	}
+	i := choose([]string{"IPv4 入口", "IPv6 入口"}, 1)
+	if i < 0 {
+		return false, false
+	}
+	return i == 1, true
+}
+
 func addWarp(st *State, license string) bool {
+	v6, proceed := warpEntryChoice(st)
+	if !proceed {
+		return false
+	}
 	info("注册 WARP 免费账号")
-	o, err := warpRegister(st.ipv6Only())
+	o, err := warpRegister(v6)
 	if err != nil {
 		warn("注册失败：%v", err)
 		info("也可以在别处生成 WARP 账号，用「添加出站」导入 wireguard:// 链接或者 WireGuard 配置文件")
@@ -382,7 +400,7 @@ func addWarp(st *State, license string) bool {
 			ok("已绑定 WARP+")
 		}
 	}
-	if !warpPick(st, o) {
+	if !warpPick(st, o, v6) {
 		warn("几个入口都没握手成功，可能是机房封了 WARP 的 UDP")
 		if !confirm("还是加上？", false) {
 			warpUnregister(o)
@@ -436,8 +454,12 @@ func warpMenu(st *State) {
 		st.save()
 		ok("已绑定，现在是 %s", o.Kind)
 	case 2:
+		v6, proceed := warpEntryChoice(st)
+		if !proceed {
+			return
+		}
 		old := o.Server
-		if !warpPick(st, o) {
+		if !warpPick(st, o, v6) {
 			warn("几个入口都没通，入口不变")
 			setWarpPeer(o, old)
 			return
@@ -446,7 +468,11 @@ func warpMenu(st *State) {
 			warpCheck(st, o)
 		}
 	case 3:
-		fresh, err := warpRegister(st.ipv6Only())
+		v6, proceed := warpEntryChoice(st)
+		if !proceed {
+			return
+		}
+		fresh, err := warpRegister(v6)
 		if err != nil {
 			warn("注册失败：%v", err)
 			return
@@ -454,7 +480,7 @@ func warpMenu(st *State) {
 		if lp := toInt(o.Config["listen_port"]); lp > 0 {
 			fresh.Config["listen_port"] = lp
 		}
-		if !warpPick(st, fresh) {
+		if !warpPick(st, fresh, v6) {
 			warn("新账号几个入口都没通，还用原来的")
 			warpUnregister(fresh)
 			return

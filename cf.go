@@ -119,6 +119,8 @@ func cfHint(codes []int, token bool) string {
 		return "Token 缺这一步的权限：区域资源要包含节点用的域名，权限要有 Zone Read 和 DNS Edit，装 CF WS 再加 Origin Rules Edit 和 Config Rules Edit"
 	case has(10000) || has(10001):
 		return "Cloudflare 认得这份凭据，但不让做这一步，确认域名在这个登录邮箱的账号下面"
+	case has(50001):
+		return "规则已满：这个阶段最多 10 条，先删掉不用的规则再试"
 	}
 	return ""
 }

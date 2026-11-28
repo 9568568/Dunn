@@ -191,7 +191,7 @@ func dnsDrop(st *State, c *CF, host, id string, backup []DNSRecord) error {
 
 func wsRules(st *State, c *CF) {
 	if err := wsRulesPut(st, c); err != nil {
-		die("%v。补好权限后用菜单 10 重新应用 WS 端口", err)
+		die("%v。处理好之后用菜单 10 重新应用 WS 端口", err)
 	}
 }
 
@@ -202,14 +202,14 @@ func wsRulesPut(st *State, c *CF) error {
 		"expression": expr, "action": "route",
 		"action_parameters": map[string]any{"origin": map[string]any{"port": st.WS.PubPort}},
 	}); err != nil {
-		return fmt.Errorf("写回源规则失败，使用 Token 时请检查 Origin Rules 的 Edit 权限：%v", err)
+		return fmt.Errorf("写回源规则失败：%v", err)
 	}
 	// 只对这个子域名改 SSL 和安全级别，整个域名的设置不动
 	if err := c.RuleUpsert(zid, "http_config_settings", rulePrefix+host, map[string]any{
 		"expression": expr, "action": "set_config",
 		"action_parameters": map[string]any{"ssl": "flexible", "security_level": "essentially_off", "bic": false},
 	}); err != nil {
-		return fmt.Errorf("写配置规则失败，使用 Token 时请检查 Config Rules 的 Edit 权限：%v", err)
+		return fmt.Errorf("写配置规则失败：%v", err)
 	}
 	setting := c.Setting(zid, "websockets")
 	if c.Token != "" && setting == "" {

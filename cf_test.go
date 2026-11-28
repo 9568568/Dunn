@@ -88,6 +88,8 @@ func TestCFErrorHint(t *testing.T) {
 			&CF{Email: "a", Key: "x"}, []string{"6102", "登录邮箱"}},
 		{"Token 缺 DNS 权限", `{"success":false,"errors":[{"code":10000,"message":"Authentication error"}]}`,
 			&CF{Token: "t"}, []string{"10000 Authentication error", "DNS Edit"}},
+		{"规则集已满", `{"success":false,"errors":[{"code":50001,"message":"exceeded the maximum number of rules in the phase http_request_origin: 11 out of 10"}]}`,
+			&CF{Token: "t"}, []string{"50001", "最多 10 条"}},
 		{"Token 无效", `{"success":false,"errors":[{"code":9109,"message":"Invalid access token"}]}`,
 			&CF{Token: "t"}, []string{"9109", "没被删除"}},
 		{"没见过的码原样给", `{"success":false,"errors":[{"code":7003,"message":"Could not route"}]}`,
