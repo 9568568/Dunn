@@ -351,7 +351,7 @@ func warpOut(st *State) *Outbound {
 
 // 挨个入口起临时进程试，第一个能握手的留下
 func warpPick(st *State, o *Outbound) bool {
-	for _, hp := range warpCandidates(o, st.IP4 != "" || st.IP6 == "") {
+	for _, hp := range warpCandidates(o, !st.ipv6Only()) {
 		setWarpPeer(o, hp)
 		fmt.Fprintf(os.Stderr, "  试入口 %s … ", hp)
 		e, err := testOut(st, o, 1)
@@ -361,13 +361,13 @@ func warpPick(st *State, o *Outbound) bool {
 		}
 		fmt.Fprintf(os.Stderr, "不通：%v\n", err)
 	}
-	setWarpPeer(o, warpCandidates(o, st.IP4 != "" || st.IP6 == "")[0])
+	setWarpPeer(o, warpCandidates(o, !st.ipv6Only())[0])
 	return false
 }
 
 func addWarp(st *State, license string) bool {
 	info("注册 WARP 免费账号")
-	o, err := warpRegister()
+	o, err := warpRegister(st.ipv6Only())
 	if err != nil {
 		warn("注册失败：%v", err)
 		info("也可以在别处生成 WARP 账号，用「添加出站」导入 wireguard:// 链接或者 WireGuard 配置文件")
@@ -446,7 +446,7 @@ func warpMenu(st *State) {
 			warpCheck(st, o)
 		}
 	case 3:
-		fresh, err := warpRegister()
+		fresh, err := warpRegister(st.ipv6Only())
 		if err != nil {
 			warn("注册失败：%v", err)
 			return

@@ -33,7 +33,11 @@ func TestParseAddr(t *testing.T) {
 }
 
 func TestIsCFIP(t *testing.T) {
-	for ip, want := range map[string]bool{"104.16.1.1": true, "172.66.201.155": true, "47.76.127.217": false, "2606:4700::1111": true, "8.8.8.8": false} {
+	for ip, want := range map[string]bool{
+		"104.16.1.1": true, "172.66.201.155": true, "47.76.127.217": false, "2606:4700::1111": true, "8.8.8.8": false,
+		// 实测的 WARP 出口 IP，落在 104.28.0.0/15，不在 Cloudflare 公布的 ips-v4 列表里
+		"104.28.215.68": true, "104.28.247.68": true, "104.24.1.1": true,
+	} {
 		if isCFIP(ip) != want {
 			t.Errorf("%s", ip)
 		}

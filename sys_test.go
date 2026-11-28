@@ -116,3 +116,35 @@ func TestLinkRealityIPv6Only(t *testing.T) {
 		t.Errorf("Reality link SNI/address wrong: %q", link)
 	}
 }
+
+// detectIP 和 syncIP 共用的过滤：检测到的 IPv4 一旦落在 Cloudflare 网段，
+// 就是 WARP 或代理的出口地址，不是本机公网 IP，必须丢掉，否则 syncIP 会把它
+// 写进 DNS 的 A 记录和 Reality/AnyTLS/Hy2 链接，节点全断
+func TestDropCFIP4(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// 实测的 WARP 出口 IP（纯 IPv6 机器 + WARP，2026-11-28）
+		{"104.28.215.68", ""},
+		{"104.28.247.68", ""},
+		// Cloudflare 公布的地址段
+		{"104.16.1.1", ""},
+		{"104.24.100.1", ""},
+		{"172.64.10.20", ""},
+		{"103.21.244.5", ""},
+		{"173.245.48.10", ""},
+		// 正常公网 IPv4，原样保留
+		{"1.2.3.4", "1.2.3.4"},
+		{"8.8.8.8", "8.8.8.8"},
+		{"47.76.127.217", "47.76.127.217"},
+		// 空和非法输入原样返回
+		{"", ""},
+		{"not-an-ip", "not-an-ip"},
+	}
+	for _, c := range cases {
+		if got := dropCFIP4(c.in); got != c.want {
+			t.Errorf("dropCFIP4(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}

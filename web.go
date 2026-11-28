@@ -210,6 +210,10 @@ func serve() {
 	}
 	go renewLoop()
 	go rulesLoop()
+	if initSys == "openrc" {
+		trimLogs() // 先截再打启动日志，这一行不会被截掉
+		go logTrimLoop()
+	}
 	log.Printf("dun %s 已启动", version)
 	if st.Reality == nil && st.WS == nil {
 		select {}

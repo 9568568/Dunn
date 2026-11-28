@@ -43,11 +43,14 @@ type wetestCache struct {
 	Checked bool      `json:"checked"`
 }
 
+// Cloudflare 公布的地址段（https://www.cloudflare.com/ips-v4/、ips-v6），
+// 再加 WARP 出口用的 104.28.0.0/15：实测 WARP 出口 IP 104.28.215.68、104.28.247.68
+// 落在这里，它在 Cloudflare 的 ARIN 分配 NET-104-16-0-0-1 里，但不在公布的 ips-v4 列表里
 var cfNets = func() []*net.IPNet {
 	var ns []*net.IPNet
 	for _, c := range strings.Fields(`173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18
 		108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15
-		104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32
+		104.16.0.0/13 104.24.0.0/14 104.28.0.0/15 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32
 		2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32`) {
 		_, n, _ := net.ParseCIDR(c)
 		ns = append(ns, n)
@@ -457,7 +460,7 @@ var clashGroups = []struct{ name, first string }{
 	{"YouTube", "节点选择"},
 	{"流媒体", "节点选择"},
 	{"谷歌", "节点选择"},
-	{"微软", "DIRECT"},
+	{"微软", "节点选择"},
 	{"苹果", "DIRECT"},
 	{"漏网之鱼", "节点选择"},
 }
@@ -478,6 +481,7 @@ const clashRules = `rules:
   - GEOIP,netflix,流媒体,no-resolve
   - GEOSITE,google,谷歌
   - GEOIP,google,谷歌,no-resolve
+  - GEOSITE,microsoft@cn,DIRECT
   - GEOSITE,microsoft,微软
   - GEOSITE,apple,苹果
   - GEOSITE,geolocation-!cn,节点选择

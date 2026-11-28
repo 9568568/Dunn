@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"fmt"
@@ -123,6 +124,7 @@ WantedBy=multi-user.target
 		return
 	}
 	if initSys == "openrc" {
+		// 只排在 net 后面，不用 need net：LXC 这类容器没有 networking 服务，need 会把它拉起来，起不来就连累节点
 		tpl := `#!/sbin/openrc-run
 name="%s"
 command="%s"
@@ -131,7 +133,7 @@ supervisor=supervise-daemon
 respawn_delay=3
 output_log="/var/log/%s.log"
 error_log="/var/log/%s.log"
-depend() { need net; after firewall; }
+depend() { after net firewall; }
 `
 		os.WriteFile("/etc/init.d/"+svcBox, []byte(fmt.Sprintf(tpl, svcBox, sbBin, "run -c "+sbConf, svcBox, svcBox)), 0755)
 		os.WriteFile("/etc/init.d/"+svcWeb, []byte(fmt.Sprintf(tpl, svcWeb, selfPath, "serve", svcWeb, svcWeb)), 0755)
@@ -191,6 +193,42 @@ func svcLog(n int, follow bool) {
 		args = append(args, "-f")
 	}
 	runTTY("tail", append(args, "/var/log/"+svcBox+".log", "/var/log/"+svcWeb+".log")...)
+}
+
+// OpenRC 下两个服务的输出直接写 /var/log，没人轮转。超过 20MB 就只留最后 2MB，免得把小鸡的硬盘写满
+func trimLogs() {
+	for _, s := range []string{svcBox, svcWeb} {
+		trimLog("/var/log/"+s+".log", 20<<20, 2<<20)
+	}
+}
+
+func logTrimLoop() {
+	for {
+		time.Sleep(6 * time.Hour)
+		trimLogs()
+	}
+}
+
+// 原地截断，supervise-daemon 是追加写的，截完接着往末尾写
+func trimLog(p string, max, keep int64) {
+	f, err := os.OpenFile(p, os.O_RDWR, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil || fi.Size() <= max {
+		return
+	}
+	buf := make([]byte, keep)
+	n, _ := f.ReadAt(buf, fi.Size()-keep)
+	buf = buf[:n]
+	if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+		buf = buf[i+1:]
+	}
+	if f.Truncate(0) == nil {
+		f.WriteAt(buf, 0)
+	}
 }
 
 // ── 端口 ─────────────────────────────────────────────
@@ -312,29 +350,30 @@ func randPort(st *State, avoid ...int) int {
 	return 0
 }
 
-func curPort(st *State, key string) int {
+func curPorts(st *State, key string) (int, int) {
 	switch {
 	case key == "reality" && st.Reality != nil:
-		return st.Reality.Port
+		return st.Reality.Port, st.Reality.PubPort
 	case key == "anytls" && st.AnyTLS != nil:
-		return st.AnyTLS.Port
+		return st.AnyTLS.Port, st.AnyTLS.PubPort
 	case key == "ws" && st.WS != nil:
-		return st.WS.Port
+		return st.WS.Port, st.WS.PubPort
 	case key == "hy2" && st.Hy2 != nil:
-		return st.Hy2.Port
+		return st.Hy2.Port, st.Hy2.PubPort
 	}
-	return 0
+	return 0, 0
 }
 
 func askPort(st *State, prompt string, def int, key string) int {
 	used := st.usedPorts(key)
+	current, _ := curPorts(st, key)
 	for {
 		p := askInt(prompt, def, 1, 65535)
 		if _, u := used[p]; u {
 			warn("%d 已经分给本脚本的其他协议了", p)
 			continue
 		}
-		if o := portOwner(p); o != "" && o != "ours" && p != curPort(st, key) {
+		if o := portOwner(p); o != "" && o != "ours" && p != current {
 			warn("%d 被 %s 占用，换一个", p, o)
 			continue
 		}
@@ -342,47 +381,58 @@ func askPort(st *State, prompt string, def int, key string) int {
 	}
 }
 
-func askPubPort(st *State, p int) int {
-	if !st.NAT {
-		return p
+const (
+	portDirect = "direct"
+	portMapped = "mapped"
+)
+
+func hasLocalIP(ip string, addrs []net.Addr) bool {
+	want := net.ParseIP(ip)
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && want.Equal(n.IP) {
+			return true
+		}
 	}
-	return askInt("  这台像是 NAT 机器，外网端口是多少（甲骨文这类内外端口一样的直接回车）", p, 1, 65535)
+	return false
 }
 
-func fwOpen(p int) { fwOpenProto(strconv.Itoa(p), "tcp") }
+func (st *State) hasMappedPorts() bool {
+	for _, key := range []string{"reality", "anytls", "ws", "hy2"} {
+		port, pub := curPorts(st, key)
+		if pub > 0 && pub != port {
+			return true
+		}
+	}
+	return false
+}
 
-// ps 可以是单个端口，也可以是 20000:21000 这样的范围
-func fwOpenProto(ps, proto string) {
-	p := ps
-	if have("ufw") {
-		if out, _ := runOut("ufw", "status"); strings.Contains(out, "Status: active") {
-			if run("ufw", "allow", ps+"/"+proto) == nil {
-				info("ufw 已放行 %s/%s", p, proto)
-			}
-		}
+func selectPortMode(st *State, addrs []net.Addr) string {
+	mapped := st.hasMappedPorts()
+	if !mapped && st.PortMode != portMapped && (st.IP4 == "" || hasLocalIP(st.IP4, addrs)) {
+		return portDirect
 	}
-	if have("firewall-cmd") && run("firewall-cmd", "--state") == nil {
-		run("firewall-cmd", "-q", "--permanent", "--add-port="+strings.ReplaceAll(ps, ":", "-")+"/"+proto)
-		run("firewall-cmd", "-q", "--reload")
-		info("firewalld 已放行 %s/%s", p, proto)
+	def := 1
+	if st.PortMode == portMapped || (st.PortMode == "" && mapped) {
+		def = 2
 	}
-	// 甲骨文 Ubuntu 镜像自带 iptables REJECT，不加这条外面连不进来
-	if have("iptables") {
-		out, _ := runOut("iptables", "-S", "INPUT")
-		if strings.Contains(out, "-j REJECT") || strings.Contains(out, "-j DROP") || strings.Contains(out, "-P INPUT DROP") {
-			if run("iptables", "-C", "INPUT", "-p", proto, "--dport", ps, "-j", "ACCEPT") != nil {
-				run("iptables", "-I", "INPUT", "-p", proto, "--dport", ps, "-j", "ACCEPT")
-			}
-			if have("netfilter-persistent") {
-				run("netfilter-persistent", "save")
-			} else if isDir("/etc/iptables") {
-				if b, err := exec.Command("iptables-save").Output(); err == nil {
-					os.WriteFile("/etc/iptables/rules.v4", b, 0640)
-				}
-			}
-			info("iptables 已放行 %s/%s", p, proto)
-		}
+	info("请选择服务商给这台机器分配端口的方式")
+	info("1. 独享公网 IP，可以自行开放端口，比如绑定公网 IP 的甲骨文实例")
+	info("2. 只能用服务商分配的映射端口，包括内外端口号相同的情况")
+	if askInt("端口方式", def, 1, 2) == 2 {
+		return portMapped
 	}
+	return portDirect
+}
+
+func askPubPort(st *State, p int) int {
+	if st.PortMode != portDirect && st.PortMode != portMapped {
+		addrs, _ := net.InterfaceAddrs()
+		st.PortMode = selectPortMode(st, addrs)
+	}
+	if st.PortMode == portMapped {
+		return askInt("  服务商分配的外网端口", p, 1, 65535)
+	}
+	return p
 }
 
 // ── 公网 IP ──────────────────────────────────────────
@@ -424,7 +474,17 @@ func traceIP(network, u string) (string, bool) {
 	return ip, tunnelExit(ip, warp)
 }
 
+// 检测到的 IPv4 落在 Cloudflare 网段里，说明出口走了 WARP 或代理，这个地址不是本机的。
+// 写进解析和链接会让节点连不上：直连协议被 CF 截获握手，CF WS 回源也指到 CF 自己。直接丢掉，按纯 IPv6 处理
+func dropCFIP4(ip string) string {
+	if ip != "" && isCFIP(ip) {
+		return ""
+	}
+	return ip
+}
+
 func detectIP(st *State) {
+	oldIP4 := st.IP4
 	if ip, tun := traceIP("tcp4", "https://1.1.1.1/cdn-cgi/trace"); tun {
 		warn("IPv4 出口走了隧道（%s），不是服务器 IP，已忽略，改用 IPv6", ip)
 	} else {
@@ -438,15 +498,8 @@ func detectIP(st *State) {
 	if st.IP4 == "" && st.IP6 == "" {
 		die("拿不到公网 IP，检查网络")
 	}
-	st.NAT = false
-	if st.IP4 != "" {
-		st.NAT = true
-		addrs, _ := net.InterfaceAddrs()
-		for _, a := range addrs {
-			if n, ok := a.(*net.IPNet); ok && n.IP.String() == st.IP4 {
-				st.NAT = false
-			}
-		}
+	if oldIP4 != st.IP4 {
+		st.PortMode = ""
 	}
 	st.save()
 }

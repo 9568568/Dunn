@@ -135,7 +135,7 @@ type Rule struct {
 type State struct {
 	IP4       string      `json:"ip4,omitempty"`
 	IP6       string      `json:"ip6,omitempty"`
-	NAT       bool        `json:"nat,omitempty"`
+	PortMode  string      `json:"port_mode,omitempty"` // direct 或 mapped，旧版 nat 只反映地址是否一致
 	Zone      *Zone       `json:"zone,omitempty"`
 	TLS       *TLSHost    `json:"tls,omitempty"`
 	Reality   *Reality    `json:"reality,omitempty"`

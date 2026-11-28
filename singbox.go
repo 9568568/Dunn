@@ -57,7 +57,8 @@ func sbInstall(ver string) {
 	if ver == "" {
 		die("拿不到 sing-box 最新版本号，检查能不能访问 GitHub")
 	}
-	u := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/sing-box-%s-linux-%s.tar.gz", ver, ver, sbArch())
+	// 一律用 musl 静态包：不带后缀的那版要 glibc 的加载器，Alpine 上跑不起来；官方 deb、rpm、apk 装的也是这一版
+	u := fmt.Sprintf("https://github.com/SagerNet/sing-box/releases/download/v%s/sing-box-%s-linux-%s-musl.tar.gz", ver, ver, sbArch())
 	info("下载 sing-box %s (%s)", ver, sbArch())
 	c := &http.Client{Timeout: 5 * time.Minute}
 	resp, err := c.Get(u)

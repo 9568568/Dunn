@@ -95,8 +95,13 @@ func hostOnly(s string) string {
 	return strings.Trim(s, "[]")
 }
 
+// 纯 IPv6 机器：没有公网 IPv4，只有 IPv6。WARP 入口就走 IPv6 出口；
+// 有 IPv4 的机器（包括双栈）走原来的 IPv4 入口；两个都没测到时也走原来的。
+func (st *State) ipv6Only() bool { return st.IP4 == "" && st.IP6 != "" }
+
 // 注册一个免费 WARP 账号，返回 WireGuard endpoint
-func warpRegister() (*Outbound, error) {
+// v6 为 true 时初始入口就用 IPv6（纯 IPv6 机器上 IPv4 入口不可达）
+func warpRegister(v6 bool) (*Outbound, error) {
 	k, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
@@ -120,7 +125,11 @@ func warpRegister() (*Outbound, error) {
 	if a.V6 != "" {
 		addrs = append(addrs, a.V6+"/128")
 	}
-	ep := wgEndpoint(e.EncodeToString(k.Bytes()), pub, "", "162.159.192.1", 2408, addrs, wgReserved(r.Config.ClientID), 1280)
+	epHost := "162.159.192.1"
+	if v6 {
+		epHost = "2606:4700:d0::a29f:c001"
+	}
+	ep := wgEndpoint(e.EncodeToString(k.Bytes()), pub, "", epHost, 2408, addrs, wgReserved(r.Config.ClientID), 1280)
 	o := &Outbound{Name: "warp", Endpoint: true, Config: ep, Warp: acct}
 	warpLabel(o)
 	return o, nil

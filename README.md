@@ -1,6 +1,6 @@
 # dun 盾
 
-> 本仓库基于 [byJoey/dun](https://github.com/byJoey/dun) 1.1.0 修改，只改了纯 IPv6 VPS 适配相关的部分（测 IP 时丢弃隧道出口、安装脚本支持纯 IPv6 下载等），其余功能与原项目一致，版权归原作者所有。
+> 本仓库基于 [byJoey/dun](https://github.com/byJoey/dun) 1.1.4 修改，只改了纯 IPv6 VPS 适配相关的部分（测 IP 时丢弃隧道出口、安装脚本支持纯 IPv6 下载等），其余功能与原项目一致，版权归原作者所有。
 
 一条命令装好三种节点：Reality 偷自己、AnyTLS、套 Cloudflare 的 VLESS + WS；线路差的机器还可以加装 Hysteria2。装完输入 `dun` 就能管理。
 
@@ -8,13 +8,17 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 
 还能在服务端分流：ChatGPT、Claude 这类流量走 WARP，别的走你自己的落地代理，链接粘进来就能用。
 
+本仓库在 byJoey/dun 的基础上修了一个问题：纯 IPv6 又跑着 WARP 的机器上，IP 检测会把 Cloudflare 出口 IP 当成公网 IP，`syncip` 会把解析和链接全写坏。详见「常见问题」里的相关条目。
+
 ## 快速开始
 
-准备三样东西：
+### 1. 准备三样东西
 
-- 一台 VPS，root 登录。带 systemd 的 Linux 都行，比如 Debian、Ubuntu、CentOS、Alma、Rocky，amd64 和 arm64 都支持
+- 一台 VPS，root 登录。Debian、Ubuntu、CentOS、Alma、Rocky 这些带 systemd 的都行，用 OpenRC 的 Alpine 也行，amd64 和 arm64 都支持
 - 一个已经接入 Cloudflare 的域名
-- Cloudflare 的 Global API Key。在 CF 后台点右上角头像，进「我的个人资料」→「API 令牌」，Global API Key 那一栏点「查看」
+- 一份 Cloudflare 凭据。可以用登录邮箱加 Global API Key，也可以只填一个限域名的 API Token
+
+### 2. 安装
 
 登录 VPS，执行：
 
@@ -22,9 +26,19 @@ dun 是一个 Go 写的单文件程序。节点由官方 sing-box 跑，伪装�
 bash <(curl -fsSL https://github.com/9568568/Dunn/releases/latest/download/install.sh)
 ```
 
-菜单里选 `4` 三个一起装。中间会问 CF 邮箱和 Key，让你选一个域名，其他问题一路回车用默认值就行。装完屏幕上会打出订阅地址，复制进客户端就能用。
+Alpine 默认没有 bash 和 curl，换成这一条：
 
-以后再管理，输入：
+```sh
+wget -qO- https://github.com/9568568/Dunn/releases/latest/download/install.sh | sh
+```
+
+一键安装要先有 Release：给仓库打一个 `v*` 的 tag，GitHub Actions 会自动编译 amd64、arm64 两个版本并发布。没有 Release 时可以看「自己编译」。
+
+### 3. 装协议
+
+菜单里选 `4` 三个一起装。中间会让你选 Cloudflare 凭据类型和域名，其他问题一路回车用默认值就行。装完屏幕上会打出订阅地址，复制进客户端就能用。
+
+### 4. 以后管理
 
 ```bash
 dun
@@ -34,6 +48,7 @@ dun
 
 ```bash
 dun install reality      # 只装一个，reality / anytls / ws / all / hy2
+dun install hy2          # Hysteria2 单独装
 dun links                # 再看一遍订阅和链接
 dun log                  # 看日志
 dun syncip               # 机器换了 IP 以后同步解析
@@ -57,6 +72,8 @@ dun uninstall            # 全部卸载
 
 ## 分流
 
+### 客户端分流
+
 Clash 订阅自带分流规则，导入就能用：
 
 | 分组 | 默认 | 管哪些 |
@@ -64,7 +81,8 @@ Clash 订阅自带分流规则，导入就能用：
 | 广告拦截 | 拦截 | 常见广告和跟踪域名 |
 | AI | 走代理 | ChatGPT、Claude、Gemini 等 |
 | Telegram / YouTube / 流媒体 / 谷歌 | 走代理 | 各自的域名和 IP |
-| 微软 / 苹果 | 直连 | 下载更新走国内更快 |
+| 微软 | 走代理 | 微软的服务和 GitHub。Windows 更新、软件下载这类国内有节点的域名还是直连 |
+| 苹果 | 直连 | 下载更新走国内更快 |
 | 国内网站和 IP | 直连 | |
 | 漏网之鱼 | 走代理 | 上面都没匹配到的 |
 
@@ -76,13 +94,13 @@ v2rayN、Shadowrocket 用的 `/sub` 订阅装不下规则，用客户端自带�
 
 服务端另外拦两样：BT 下载，VPS 商家看到了会封机；通过节点访问内网地址，免得别人借你的节点摸进机器本地的服务。
 
-## 服务端分流：WARP 和落地代理
+### 服务端分流：WARP 和落地代理
 
 上面的分流是在客户端里选节点。这里是另一层：流量到了 VPS 以后从哪出去。比如 ChatGPT、Claude、Gemini 嫌 VPS 的 IP 不干净，就让这部分走 Cloudflare 的 WARP；想要家宽 IP，就让它走你买的住宅代理。客户端什么都不用改，所有协议的节点一起生效。
 
 菜单第 21 项进去，先加出站，再加规则。
 
-### 出站
+#### 出站
 
 **WARP**：选「添加 WARP」，dun 自动注册一个免费账号，挨个试入口，留下第一个能握手的。有 WARP+ 授权码的话可以绑上。命令行一句搞定：
 
@@ -113,7 +131,7 @@ dun out rm 家宽
 
 链接里有 `&`，命令行里记得用单引号包起来。
 
-### 规则
+#### 规则
 
 写法和 Xray、3x-ui 的路由规则一样，逗号分隔，以前用的列表可以直接粘进来：
 
@@ -172,13 +190,17 @@ dun route rm 2
 - **伪装站**：登录页每台机器随机生成，标题、文案、配色、页面结构、登录接口和报错都不一样
 - **客户端**：DNS 防泄露，分流规则
 
-## Hysteria2
+## 协议说明
+
+### Hysteria2
 
 菜单第 5 项单独装，不在「三个一起装」里。走 UDP，丢包多、晚高峰拥堵的线路上明显比 TCP 协议快，适合线路不好的机器。
 
-默认就是最抗封锁的配置：gecko 混淆、端口跳跃，参数每台机器随机，不用自己选。客户端要求 mihomo 1.19.34、sing-box 1.14 以上，老版本不认 gecko。云厂商的安全组记得放行 UDP。
+默认就是最抗封锁的配置：gecko 混淆、端口跳跃，参数每台机器随机，不用自己选。端口跳跃要用 iptables 转发，机器上没有会自动装；容器不让加转发规则的，就走单端口。客户端要求 mihomo 1.19.34、sing-box 1.14 以上，老版本不认 gecko。云厂商的安全组记得放行 UDP。
 
-## 伪装站
+**v2rayNG 2.3.15** 导入 Hy2 链接时会使用 salamander，和 dun 默认的 gecko 对不上，握手会失败。这版可换用支持 gecko 的客户端。
+
+### 伪装站
 
 别人直接打开你的节点域名，看到的是一个登录页。随便输账号密码，都会提示用户名或密码错误。每台机器的登录页长得都不一样，想换个样子，在「伪装站」里选「换一个登录页样式」。
 
@@ -200,19 +222,55 @@ dun route rm 2
 | 15 | 开 BBR |
 | 16 | IP 变了，同步解析 |
 | 17 | 更换节点域名，证书一起换 |
-| 18 | 换 CF 账号 |
+| 18 | 更换 Cloudflare 凭据或域名，换了账号节点会跟着搬到新域名 |
 | 20 | 全部卸载 |
 | 21 | 出站分流：WARP、导入落地代理、分流规则、其他流量走哪、测出口 |
 
 ## 常见问题
 
+### 选哪个协议，客户端怎么配
+
 **三个协议该用哪个？**
 
 优先用 Reality 偷自己，直连，速度最好。AnyTLS 也是直连，换个协议换个特征，当备用。CF WS 走 Cloudflare 中转，速度一般，但 VPS 的 IP 被墙了它照样能用，属于保底。直接导入订阅，三个都有，客户端里切换最省心。
 
-**为什么要 Global API Key，安全吗？**
+**哪些客户端能用 AnyTLS？**
 
-用 Global Key 是因为小白只要复制一串字符，不用自己建令牌、勾权限。代价是这把 Key 权限很大，能管你整个 CF 账号。dun 把它存在 VPS 的 `/etc/dun/cf.json`，只有 root 能读，续期证书要用，所以会一直留着，卸载时一起删掉。VPS 要是被人拿下，Key 也就跟着泄露了。介意的话，单独注册一个 CF 账号放节点用的域名。
+sing-box 官方客户端、Clash Verge Rev、FlClash 这类 mihomo 内核的客户端，还有新版的 v2rayN、Shadowrocket。Reality 和 WS 基本所有客户端都支持。
+
+**AnyTLS 和官方默认有什么不一样？**
+
+AnyTLS 靠填充打乱包长，但官方默认的填充方案人人都在用，包长分布本身就成了特征，比如认证包永远是同一个长度。dun 每台机器装的时候随机生成一份自己的方案，客户端连上以后由服务端下发，从第二条连接开始就按你的方案走。重置 AnyTLS 密码时方案也会一起换。
+
+**CF WS 很慢？**
+
+导入订阅后，在客户端里给 CF WS 那一组测个速，挑最快的。也可以把你自己测出来的好 IP 加进「自选地址」，订阅马上就有。
+
+### Cloudflare
+
+**Cloudflare API Token 怎么配？**
+
+在 Cloudflare 的「用户 API 令牌」里创建自定义 Token。区域资源选「包含 → 特定区域」，只选节点用的域名。权限类别都选 Zone。
+
+| 安装内容 | 需要的权限 |
+| --- | --- |
+| Reality、AnyTLS 或 Hy2 | Zone → Read、DNS → Edit，用来选域名、写解析和完成证书的 DNS 验证 |
+| CF WS，包括菜单 4 的「三个一起装」 | 基础权限，再加 Origin Rules → Edit、Config Rules → Edit，分别用来设回源端口和子域名的 SSL 配置 |
+
+CF WS 还需要域名后台「网络」里的 WebSockets 开关处于开启状态。可以手动打开，Token 无需额外的 Zone Settings 编辑权限。
+
+选 Global API Key 时，输入登录邮箱和 Key。Key 在控制台右上角头像 → 设置 → API 凭据 → API 密钥。Global Key 可以管理整个账号。两种凭据都保存在 VPS 的 `/etc/dun/cf.json`，供后台续证和管理解析使用。原先用 Key 的安装会继续使用已保存的凭据，要换 Token 可用菜单 18。
+
+**验证 Cloudflare 凭据失败？**
+
+dun 会把 Cloudflare 给的具体原因和改法一起打出来。常见的几种：
+
+- `6103 Invalid format for X-Auth-Key header`：Key 的格式不对。Global API Key 是 37 位，只有数字和 a 到 f。复制的其实是 API Token 的话，凭据类型选 2
+- `6102 Invalid format for X-Auth-Email header`：邮箱格式不对，填 Cloudflare 的登录邮箱
+- `9103 Unknown X-Auth-Key or X-Auth-Email`：邮箱和 Key 对不上。邮箱要填这个账号的登录邮箱，Key 点「查看」后完整复制
+- `9109`、`10000`、`10001`：Token 无效，或者缺权限。照上面的表补权限，区域资源要包含节点用的域名。用 Global API Key 碰到 10001，确认域名就在这个登录邮箱的账号下面
+
+类型选错了也不要紧：Global API Key 那一栏贴了 API Token，dun 认出来会直接按 Token 用；Token 那一栏贴了 37 位的 Key，会再问一次登录邮箱。
 
 **会动我域名的哪些设置？**
 
@@ -224,9 +282,7 @@ dun route rm 2
 
 整个域名的 SSL 模式不改，你原来的规则也不碰。子域名要是已经有解析，dun 会先问你，覆盖前会备份，卸载时还原。
 
-**443 被占了怎么办？**
-
-Reality 和 AnyTLS 默认用 443，被占了会提示换个端口，填别的也能用。机器上原来的网站不受影响，dun 的伪装站只监听本机 127.0.0.1，80 端口空着才会用来做跳转。
+### 安装与连接
 
 **装完连不上？**
 
@@ -236,38 +292,67 @@ Reality 和 AnyTLS 默认用 443，被占了会提示换个端口，填别的也
 2. CF WS 刚装好，解析可能要一两分钟才生效
 3. 客户端是不是太老。AnyTLS 要新版客户端，见下一条
 4. 输入 `dun log` 看日志，有报错截图发到群里
+5. 纯 IPv6 又跑着 WARP 的机器，见下面「纯 IPv6 + WARP 的机器上 syncip 会把 CF 出口 IP 当成公网 IP」
 
-**AnyTLS 和官方默认有什么不一样？**
+**443 被占了怎么办？**
 
-AnyTLS 靠填充打乱包长，但官方默认的填充方案人人都在用，包长分布本身就成了特征，比如认证包永远是同一个长度。dun 每台机器装的时候随机生成一份自己的方案，客户端连上以后由服务端下发，从第二条连接开始就按你的方案走。重置 AnyTLS 密码时方案也会一起换。
-
-**哪些客户端能用 AnyTLS？**
-
-sing-box 官方客户端、Clash Verge Rev、FlClash 这类 mihomo 内核的客户端，还有新版的 v2rayN、Shadowrocket。Reality 和 WS 基本所有客户端都支持。
-
-**CF WS 很慢？**
-
-导入订阅后，在客户端里给 CF WS 那一组测个速，挑最快的。也可以把你自己测出来的好 IP 加进「自选地址」，订阅马上就有。
+Reality 和 AnyTLS 默认用 443，被占了会提示换个端口，填别的也能用。机器上原来的网站不受影响，dun 的伪装站只监听本机 127.0.0.1，80 端口空着才会用来做跳转。
 
 **NAT 小鸡能用吗？**
 
-能。dun 发现是 NAT 机器，会多问一句外网端口，填服务商给你映射的那个端口就行。甲骨文这种内外端口一样的，直接回车。
+能。网卡上看不到出口 IPv4 时，安装协议会问一次端口怎么分配。甲骨文实例绑定了独享公网 IP，选 1，节点沿用监听端口，Hy2 可以跳端口。云安全组要放行监听端口和显示的 UDP 跳跃范围。
+
+如果服务商只给几个映射端口，选 2，再填分配给你的外网端口。即使内外端口号相同也选 2，Hy2 会走单端口。
+
+旧版已经把甲骨文的 Hy2 装成单端口的，升级后进菜单 10，选 Hysteria2，保留监听端口，端口方式选 1。放行显示的 UDP 范围后刷新订阅即可。
+
+**Alpine 能用吗？**
+
+能。一键命令用上面 `wget … | sh` 那条。服务交给 OpenRC 管，开机自启。日志在 `/var/log/dun-sb.log` 和 `/var/log/dun.log`，超过 20MB 会自动只留最后 2MB，不会把小鸡的硬盘写满。Hy2 端口跳跃要的 iptables，dun 会用 apk 自己装上；LXC 小鸡不给加转发规则的，Hy2 自动改成单端口。
 
 **纯 IPv6 的机器能用吗？**
 
 能。dun 测公网 IP 时会把隧道出口（比如机器上跑着 WARP 时测到的 Cloudflare 出口 IP）丢掉，只用机器自己真正能被连到的 IPv6 地址写解析、生成链接：直连的三个协议走 AAAA 解析。没有 IPv6 的客户端连不上直连节点，用订阅里走 Cloudflare 的 CF WS 那组。机器上跑着 WARP 也不影响安装和节点本身，WARP 只影响它自己那条出站。
 
+**纯 IPv6 + WARP 的机器上，syncip 会把 CF 出口 IP 当成公网 IP**
+
+症状：装完或者跑了一次 `dun syncip`，Reality、AnyTLS、Hysteria2 全连不上，CF WS 也连不上。订阅里 Reality 链接的地址是 `104.28.x.x` 这类 Cloudflare 的 IP，不是机器的地址；`dun log` 里 Reality 入站全是 Cloudflare IP 的 `invalid handshake`。
+
+原因：机器是纯 IPv6，又跑着 Cloudflare WARP（或者别的代理）时，dun 用 `https://1.1.1.1/cdn-cgi/trace` 走 IPv4 检测公网 IP，测到的其实是 WARP 的出口 IP（Cloudflare 的地址，实测是 `104.28.215.68`、`104.28.247.68`），根本不是机器的公网 IP——纯 IPv6 的机器本来就没有公网 IPv4。`syncip` 随后把这个地址写进两条 DNS 记录和链接：直连协议的流量全跑到 Cloudflare 边缘，被终结 TLS 后再转发过来，Reality 当场拒绝；CF WS 的回源地址也指到了 Cloudflare 自己，回源根本到不了机器。
+
+自查：机器上跑 `curl -4 -s https://1.1.1.1/cdn-cgi/trace`，看 `ip=` 这一行。如果这个 IP 落在 Cloudflare 的地址段里（比如 `104.28.x.x`），就是中招了。
+
+本仓库已修：`detectIP` 检测到落在 Cloudflare 地址段的 IPv4 就直接丢弃，机器按纯 IPv6 处理——只同步 AAAA 解析，链接用 IPv6 地址；`syncIP` 里还有第二道防线，万一检测到的 IPv4 还是 Cloudflare 的地址，会跳过 A 记录同步并打印警告，不会再把 CF 出口 IP 写进 DNS 和链接。升级到本仓库的新版后跑一次 `dun syncip`，解析就会改回 AAAA。
+
+已经中招、还没升级的：先升级，再跑一次 `dun syncip`；或者手动在 Cloudflare 后台把两条记录改成 AAAA 指向机器真实的 IPv6（直连域名灰云、WS 域名橙云），`state.json` 里的 `ip4` 清空，再重新生成链接。注意：没修好的旧版不要再跑 `syncip`，跑一次就又写坏一次。
+
+### 域名、IP 与证书
+
+**换了 Cloudflare 账号，或者想换个域名？**
+
+不用卸载重装，菜单 18 填新凭据就行。新凭据管不了现在的域名，dun 会列出它能管的域名让你选；还管得了，也会问一句要不要换，回车就是继续用原来的。
+
+选好以后，dun 先在新域名上建解析、签证书、写 CF WS 的规则，全部成功才切过去，中途哪一步失败，原来的节点照常用。切过去以后，再用旧凭据删掉旧域名上 dun 加的解析和规则；旧凭据已经用不了的话，会列出来让你去 CF 后台自己删。
+
+域名换了，订阅地址和所有链接都会变，客户端里要重新导入。
+
+**机器换 IP 了怎么办？**
+
+输入 `dun syncip`，解析改成新 IP。订阅会自动跟着变，客户端更新一下订阅就行。`syncip` 会先重新检测 IP；如果检测到的 IPv4 是 Cloudflare 的地址（机器走了 WARP 或代理），会直接丢弃、只同步 AAAA 解析，并打印警告。
+
 **证书会过期吗？**
 
 不会。后台服务每 12 小时检查一次，剩不到 30 天就自动续，续完自动生效。想手动续就敲 `dun renew`。
 
-**机器换 IP 了怎么办？**
-
-输入 `dun syncip`，解析改成新 IP。订阅会自动跟着变，客户端更新一下订阅就行。
-
 **WARP 连不上？**
 
 有的机房封了去 WARP 的 UDP。dun 添加 WARP 时会挨个试几个入口和端口，都不通会提示你；以后想换，在菜单 21 的 WARP 里选「换个入口」。注册时报 403 或者 429，是 Cloudflare 不让这台机器注册，可以在别的机器上生成 WARP 账号，把 `wireguard://` 链接或者配置文件导进来。
+
+### 其他
+
+**会动我机器上的防火墙吗？**
+
+只放行节点用到的端口。ufw、firewalld 开着，就交给它们放行。iptables 默认拦截的机器，比如甲骨文的镜像，dun 只在拦截规则前面插自己那几条，带 `dun-allow` 标记，IPv4 和 IPv6 都处理。开机规则文件 `/etc/iptables/rules.v4`、`rules.v6` 里也只加这几行，写之前用 iptables-restore 校验一遍，第一次改动前备份成 `rules.v4.dun.bak`。你原来的规则一条都不动。
 
 **改了规则，正在用的连接会断吗？**
 
@@ -275,7 +360,7 @@ sing-box 官方客户端、Clash Verge Rev、FlClash 这类 mihomo 内核的客�
 
 **怎么卸载干净？**
 
-输入 `dun uninstall`。dun 加的解析、CF 规则、证书、WARP 账号、sing-box 和它自己全删掉，BBR 设置会保留。
+输入 `dun uninstall`。dun 加的解析、CF 规则、证书、WARP 账号、sing-box 和它自己全删掉，iptables 里带 `dun-allow` 标记的放行规则也一起删，开机规则文件还原后备份会删掉。BBR 设置会保留，ufw、firewalld 里放行的端口不动，不用了可以自己删。
 
 ## 自己编译
 

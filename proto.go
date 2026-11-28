@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	mrand "math/rand/v2"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -146,6 +148,15 @@ func cfPickHostUnder(st *State, c *CF, hint, parent string) (string, []DNSRecord
 }
 
 func dnsSet(st *State, c *CF, host string, proxied bool) string {
+	id, err := dnsPut(st, c, host, proxied)
+	if err != nil {
+		die("添加解析失败: %v", err)
+	}
+	return id
+}
+
+// 同名的解析先删掉再加自己的；原来有的已经在选子域名时备份了
+func dnsPut(st *State, c *CF, host string, proxied bool) (string, error) {
 	if rs, err := c.DNSList(st.Zone.ID, host); err == nil {
 		for _, r := range rs {
 			c.DNSDelete(st.Zone.ID, r.ID)
@@ -155,49 +166,62 @@ func dnsSet(st *State, c *CF, host string, proxied bool) string {
 	if st.IP4 == "" {
 		rec.Type, rec.Content = "AAAA", st.IP6
 	}
-	id, err := c.DNSCreate(st.Zone.ID, rec)
-	if err != nil {
-		die("添加解析失败: %v", err)
-	}
-	return id
+	return c.DNSCreate(st.Zone.ID, rec)
 }
 
-func dnsDrop(st *State, c *CF, host, id string, backup []DNSRecord) {
+// 删掉自己那条解析，再把原来被覆盖的放回去；那条已经不在了也算删掉
+func dnsDrop(st *State, c *CF, host, id string, backup []DNSRecord) error {
 	if c == nil || st.Zone == nil {
 		warn("没有 CF 凭据，%s 的解析请自己去 CF 后台删", host)
-		return
+		return errors.New("没有 CF 凭据")
 	}
 	if id != "" {
-		c.DNSDelete(st.Zone.ID, id)
+		var apiErr *cfAPIError
+		if err := c.DNSDelete(st.Zone.ID, id); err != nil && !(errors.As(err, &apiErr) && apiErr.status == http.StatusNotFound) {
+			return err
+		}
 	}
 	for _, r := range backup {
 		if _, err := c.DNSCreate(st.Zone.ID, r); err == nil {
 			info("已还原 %s 原有的 %s 解析", host, r.Type)
 		}
 	}
+	return nil
 }
 
 func wsRules(st *State, c *CF) {
+	if err := wsRulesPut(st, c); err != nil {
+		die("%v。补好权限后用菜单 10 重新应用 WS 端口", err)
+	}
+}
+
+func wsRulesPut(st *State, c *CF) error {
 	host, zid := st.WS.Host, st.Zone.ID
 	expr := fmt.Sprintf(`(http.host eq "%s")`, host)
 	if err := c.RuleUpsert(zid, "http_request_origin", rulePrefix+host, map[string]any{
 		"expression": expr, "action": "route",
 		"action_parameters": map[string]any{"origin": map[string]any{"port": st.WS.PubPort}},
 	}); err != nil {
-		die("写回源规则失败: %v", err)
+		return fmt.Errorf("写回源规则失败，使用 Token 时请检查 Origin Rules 的 Edit 权限：%v", err)
 	}
 	// 只对这个子域名改 SSL 和安全级别，整个域名的设置不动
 	if err := c.RuleUpsert(zid, "http_config_settings", rulePrefix+host, map[string]any{
 		"expression": expr, "action": "set_config",
 		"action_parameters": map[string]any{"ssl": "flexible", "security_level": "essentially_off", "bic": false},
 	}); err != nil {
-		die("写配置规则失败: %v", err)
+		return fmt.Errorf("写配置规则失败，使用 Token 时请检查 Config Rules 的 Edit 权限：%v", err)
 	}
-	if c.Setting(zid, "websockets") != "on" {
+	setting := c.Setting(zid, "websockets")
+	if c.Token != "" && setting == "" {
+		info("请在 Cloudflare 域名的「网络」页面确认 WebSockets 已开启")
+	} else if setting != "on" {
 		if c.SetSetting(zid, "websockets", "on") == nil {
 			info("已打开 CF 的 WebSockets 开关")
+		} else {
+			warn("请在 Cloudflare 域名的「网络」页面手动开启 WebSockets")
 		}
 	}
+	return nil
 }
 
 // 偷自己、AnyTLS、Hysteria2 共用一个只解析、不走 CF 代理的子域名。
@@ -336,6 +360,11 @@ func installWS(st *State) {
 	c := cfLogin()
 	cfPickZone(st, c)
 	fmt.Fprintln(os.Stderr)
+	if c.Token != "" {
+		if err := c.checkWSRules(st.Zone.ID); err != nil {
+			die("%v", err)
+		}
+	}
 	info("CF WS 单独用一个子域名，会开 CF 代理（橙云）")
 	host, bk := cfPickHost(st, c, "WS 域名")
 	ensureToken(st)
@@ -461,6 +490,44 @@ func newHy2(port, pub int) *Hy2 {
 	return h
 }
 
+func setHy2Range(h *Hy2, mode string) {
+	if mode == portMapped {
+		h.HopStart, h.HopEnd = 0, 0
+		info("使用服务商分配的 UDP 端口，Hy2 走单端口")
+	} else if h.HopStart == 0 {
+		if hopUsable() {
+			h.HopStart, h.HopEnd = freeUDPRange(r2(2000, 6000))
+		} else {
+			warn("这台机器加不了 iptables 的端口转发规则，Hy2 走单端口")
+		}
+	}
+}
+
+// 端口跳跃靠 iptables 的 nat 规则把一段 UDP 转到 Hy2 端口。没有 iptables 就先装，Alpine 默认就没有；
+// 装不上，或者容器不让加 nat 规则，就别分配跳跃范围，免得订阅里带着跳不过去的端口
+var hopUsable = func() bool {
+	if !have("iptables") {
+		info("端口跳跃要用 iptables，先装上")
+		pkgs := []string{"iptables"}
+		if pkgMgr == "apk" {
+			pkgs = append(pkgs, "ip6tables")
+		}
+		pkgInstall(pkgs...)
+	}
+	if !have("iptables") {
+		return false
+	}
+	probe := []string{"-t", "nat", "-A", "PREROUTING", "-p", "udp", "--dport", "1", "-m", "comment", "--comment", hopTag + "-probe", "-j", "REDIRECT", "--to-ports", "2"}
+	if run("iptables", probe...) != nil {
+		return false
+	}
+	probe[2] = "-D"
+	run("iptables", probe...)
+	return true
+}
+
+const hy2ClientHint = "v2rayNG 2.3.15 导入 Hy2 链接会使用 salamander，连不上 dun 的 gecko 节点。请用支持 gecko 的客户端，例如 mihomo 1.19.34 或 sing-box 1.14 及以上版本。"
+
 func installHy2(st *State) {
 	if st.Hy2 != nil {
 		warn("Hysteria2 已经装过了，改端口、换密码走管理菜单")
@@ -471,11 +538,7 @@ func installHy2(st *State) {
 	port := askUDPPort(st, randUDPPort())
 	pub := askPubPort(st, port)
 	h := newHy2(port, pub)
-	if st.NAT {
-		info("NAT 机器开不了端口跳跃，用单端口")
-	} else if a, b := freeUDPRange(r2(2000, 6000)); a > 0 {
-		h.HopStart, h.HopEnd = a, b
-	}
+	setHy2Range(h, st.PortMode)
 	tlsHostEnsure(st)
 	st.Hy2 = h
 	fwOpenProto(fmt.Sprint(port), "udp")
@@ -484,6 +547,7 @@ func installHy2(st *State) {
 	}
 	applyAll(st)
 	ok("Hysteria2 安装完成")
+	info("%s", hy2ClientHint)
 	if h.HopStart > 0 {
 		ok("端口跳跃：UDP %d-%d 都转到 %d", h.HopStart, h.HopEnd, port)
 	}
